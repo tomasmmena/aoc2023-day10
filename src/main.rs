@@ -1,3 +1,4 @@
+use std::collections::BTreeSet;
 use std::env;
 use std::fs;
 use std::io::{self, BufRead};
@@ -37,10 +38,12 @@ fn get_connecting_tiles(x: usize, y: usize, pipes: &Vec<Vec<Tile>>) -> Vec<(usiz
 }
 
 
-fn traverse(starting_point: (usize, usize), data: &Vec<Vec<Tile>>) -> usize {
+fn traverse(starting_point: (usize, usize), data: &Vec<Vec<Tile>>) -> BTreeSet<(usize, usize)> {
     let mut current_position = starting_point.clone();
     let mut last_position = current_position.clone();
     let mut steps: usize = 0;
+    let mut tile_set = BTreeSet::new();
+    tile_set.insert(current_position);
     while current_position == last_position || current_position != starting_point {
         let next_position = get_connecting_tiles(current_position.0, current_position.1, &data)
             .into_iter()
@@ -49,11 +52,28 @@ fn traverse(starting_point: (usize, usize), data: &Vec<Vec<Tile>>) -> usize {
             .unwrap();
         last_position = current_position;
         current_position = next_position;
+        tile_set.insert(current_position);
         steps += 1;
 
         if steps > MAX_STEPS { panic!("Max steps reached!") }
     }
-    steps
+    tile_set
+}
+
+
+fn get_inloop_count(data: Vec<Vec<Tile>>, tile_set: BTreeSet<(usize, usize)>) -> usize {
+    let mut inloop_count: usize = 0;
+    for (i, row) in data.iter().enumerate() {
+        let mut inside: bool = false;
+        for (j, tile) in row.iter().enumerate() {
+            match (tile_set.contains(&(j, i)), tile) {
+                (false, _) => if inside { inloop_count += 1; }
+                (true, Tile::SevenPipe) | (true, Tile::FPipe) | (true, Tile::VPipe) => inside = !inside,
+                _ => ()
+            }
+        }
+    }
+    inloop_count
 }
 
 
@@ -85,10 +105,14 @@ fn main() {
 
     println!("Starting position is {}, {}", starting_point.0, starting_point.1);
 
-    let steps = traverse(starting_point, &data);
+    let tile_set = traverse(starting_point, &data);
+    let steps = tile_set.len();
 
     println!("Size of loop: {}", steps);
     println!("Max distance: {}", steps / 2);
+
+    let inloop_count = get_inloop_count(data, tile_set);
+    println!("No pipe tiles in loop: {}", inloop_count);
 
 }
 
@@ -96,11 +120,12 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use crate::get_connecting_tiles;
+    use crate::get_inloop_count;
     use crate::traverse;
     use crate::Tile;
 
 
-    fn get_test_data() -> Vec<Vec<Tile>> {
+    fn get_test_data_small() -> Vec<Vec<Tile>> {
         vec![
             vec![Tile::NoPipe, Tile::NoPipe, Tile::NoPipe, Tile::NoPipe, Tile::NoPipe],
             vec![Tile::NoPipe, Tile::FPipe, Tile::StartingPosition, Tile::SevenPipe, Tile::NoPipe],
@@ -110,9 +135,37 @@ mod tests {
         ]
     }
 
+    fn get_test_data_medium() -> Vec<Vec<Tile>> {
+        vec![
+            vec![Tile::NoPipe, Tile::NoPipe, Tile::NoPipe, Tile::NoPipe, Tile::NoPipe],
+            vec![Tile::NoPipe, Tile::FPipe, Tile::StartingPosition, Tile::SevenPipe, Tile::NoPipe],
+            vec![Tile::NoPipe, Tile::VPipe, Tile::NoPipe, Tile::VPipe, Tile::NoPipe],
+            vec![Tile::NoPipe, Tile::VPipe, Tile::NoPipe, Tile::VPipe, Tile::NoPipe],
+            vec![Tile::NoPipe, Tile::VPipe, Tile::NoPipe, Tile::VPipe, Tile::NoPipe],
+            vec![Tile::NoPipe, Tile::VPipe, Tile::NoPipe, Tile::VPipe, Tile::NoPipe],
+            vec![Tile::NoPipe, Tile::VPipe, Tile::NoPipe, Tile::VPipe, Tile::NoPipe],
+            vec![Tile::NoPipe, Tile::LPipe, Tile::HPipe, Tile::JPipe, Tile::NoPipe],
+            vec![Tile::NoPipe, Tile::NoPipe, Tile::NoPipe, Tile::NoPipe, Tile::NoPipe],
+        ]
+    }
+
+    fn get_test_data_large() -> Vec<Vec<Tile>> {
+        vec![
+            vec![Tile::NoPipe, Tile::NoPipe, Tile::NoPipe,           Tile::NoPipe,    Tile::NoPipe],
+            vec![Tile::NoPipe, Tile::FPipe,  Tile::StartingPosition, Tile::SevenPipe, Tile::NoPipe],
+            vec![Tile::NoPipe, Tile::VPipe,  Tile::NoPipe,           Tile::VPipe,     Tile::NoPipe],
+            vec![Tile::NoPipe, Tile::VPipe,  Tile::FPipe,            Tile::JPipe,     Tile::NoPipe],
+            vec![Tile::NoPipe, Tile::VPipe,  Tile::VPipe,            Tile::VPipe,     Tile::NoPipe],
+            vec![Tile::NoPipe, Tile::VPipe,  Tile::VPipe,            Tile::VPipe,     Tile::NoPipe],
+            vec![Tile::NoPipe, Tile::VPipe,  Tile::LPipe,            Tile::SevenPipe, Tile::NoPipe],
+            vec![Tile::NoPipe, Tile::LPipe,  Tile::HPipe,            Tile::JPipe,     Tile::NoPipe],
+            vec![Tile::NoPipe, Tile::NoPipe, Tile::NoPipe,           Tile::NoPipe,    Tile::NoPipe],
+        ]
+    }
+
     #[test]
     fn test_get_connecting_tiles() {
-        let test_map = get_test_data();
+        let test_map = get_test_data_small();
 
         // test F pipe
         assert!(get_connecting_tiles(1, 1, &test_map).contains(&(2, 1)));
@@ -152,9 +205,27 @@ mod tests {
 
     #[test]
     fn test_traverse() {
-        let test_map = get_test_data();
+        let test_map = get_test_data_small();
 
-        assert_eq!(traverse((1, 2), &test_map), 8);
+        assert_eq!(traverse((1, 2), &test_map).len(), 8);
+    }
+
+    #[test]
+    fn test_get_inloop_count() {
+        let test_map = get_test_data_small();
+        let tile_set = traverse((1, 2), &test_map);
+
+        assert_eq!(get_inloop_count(test_map, tile_set), 1);
+
+        let test_map = get_test_data_medium();
+        let tile_set = traverse((1, 2), &test_map);
+
+        assert_eq!(get_inloop_count(test_map, tile_set), 5);
+
+        let test_map = get_test_data_large();
+        let tile_set = traverse((1, 2), &test_map);
+
+        assert_eq!(get_inloop_count(test_map, tile_set), 1);
     }
 
 }
